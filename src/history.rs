@@ -104,17 +104,41 @@ impl History {
             std::fs::create_dir_all(dir)?;
         }
         let tmp = self.path.with_extension("jsonl.tmp");
-        std::fs::write(&tmp, out)?;
+        write_private(&tmp, out.as_bytes())?;
         std::fs::rename(tmp, &self.path)
     }
+}
+
+/// Open a file the app keeps (history, log, settings). On Linux/macOS new files are readable by
+/// the owner only (`0600`): they record where the user has been. Windows uses the folder's ACL.
+fn open_private(path: &Path, append: bool) -> std::io::Result<std::fs::File> {
+    let mut o = std::fs::OpenOptions::new();
+    o.create(true);
+    if append {
+        o.append(true);
+    } else {
+        o.write(true).truncate(true);
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        o.mode(0o600);
+    }
+    o.open(path)
+}
+
+pub fn write_private(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    open_private(path, false)?.write_all(bytes)
 }
 
 pub fn append_line(path: &Path, line: &str) -> std::io::Result<()> {
     if let Some(dir) = path.parent() {
         std::fs::create_dir_all(dir)?;
     }
-    let mut f = std::fs::OpenOptions::new().create(true).append(true).open(path)?;
-    writeln!(f, "{line}")
+    writeln!(open_private(path, true)?, "{line}")
 }
 
 #[cfg(test)]

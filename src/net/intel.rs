@@ -157,15 +157,9 @@ struct IpApiResponse {
 fn ip_api(agent: &ureq::Agent, ip: IpAddr) -> Result<IpIntel, String> {
     const FIELDS: &str = "status,message,country,countryCode,regionName,city,timezone,isp,org,as,reverse,lat,lon,mobile,proxy,hosting";
     let url = format!("http://ip-api.com/json/{ip}?fields={FIELDS}");
-    let r: IpApiResponse = agent
-        .get(&url)
-        .call()
-        .map_err(|e| e.to_string())?
-        .body_mut()
-        .read_json()
-        .map_err(|e| e.to_string())?;
+    let r: IpApiResponse = read_reply(agent, &url)?;
     if r.status != "success" {
-        return Err(r.message.unwrap_or_else(|| "lookup failed".into()));
+        return Err(non_empty(r.message).unwrap_or_else(|| "lookup failed".into()));
     }
     Ok(IpIntel {
         country: non_empty(r.country),
@@ -177,8 +171,8 @@ fn ip_api(agent: &ureq::Agent, ip: IpAddr) -> Result<IpIntel, String> {
         org: non_empty(r.org),
         asn: non_empty(r.asn),
         reverse_dns: non_empty(r.reverse),
-        latitude: r.lat,
-        longitude: r.lon,
+        latitude: coord(r.lat, 90.0),
+        longitude: coord(r.lon, 180.0),
         proxy: r.proxy,
         hosting: r.hosting,
         mobile: r.mobile,
@@ -214,15 +208,9 @@ struct IpWhoIsTimezone {
 }
 
 fn ipwhois(agent: &ureq::Agent, ip: IpAddr) -> Result<IpIntel, String> {
-    let r: IpWhoIsResponse = agent
-        .get(&format!("https://ipwho.is/{ip}"))
-        .call()
-        .map_err(|e| e.to_string())?
-        .body_mut()
-        .read_json()
-        .map_err(|e| e.to_string())?;
+    let r: IpWhoIsResponse = read_reply(agent, &format!("https://ipwho.is/{ip}"))?;
     if !r.success {
-        return Err(r.message.unwrap_or_else(|| "lookup failed".into()));
+        return Err(non_empty(r.message).unwrap_or_else(|| "lookup failed".into()));
     }
     let conn = r.connection;
     Ok(IpIntel {
@@ -234,15 +222,51 @@ fn ipwhois(agent: &ureq::Agent, ip: IpAddr) -> Result<IpIntel, String> {
         isp: conn.as_ref().and_then(|c| non_empty(c.isp.clone())),
         org: conn.as_ref().and_then(|c| non_empty(c.org.clone())),
         asn: conn.as_ref().and_then(|c| c.asn).map(|n| format!("AS{n}")),
-        latitude: r.latitude,
-        longitude: r.longitude,
+        latitude: coord(r.latitude, 90.0),
+        longitude: coord(r.longitude, 180.0),
         source: "ipwho.is".into(),
         ..Default::default()
     })
 }
 
+/// Longest text kept from a lookup service (names, reverse DNS, …).
+const MAX_FIELD: usize = 160;
+/// No lookup reply is anywhere near this.
+const MAX_REPLY: u64 = 64 * 1024;
+
+/// Text from a lookup service, made safe to show and log: control characters (newlines included,
+/// so one entry stays one log line) become spaces, runs of whitespace collapse, and it is capped
+/// at [`MAX_FIELD`] characters. Blank text is `None`.
 fn non_empty(s: Option<String>) -> Option<String> {
-    s.filter(|s| !s.trim().is_empty())
+    let s = s?;
+    let cleaned: String = s
+        .split(|c: char| c.is_control() || c.is_whitespace())
+        .filter(|w| !w.is_empty())
+        .fold(String::new(), |mut out, w| {
+            if !out.is_empty() {
+                out.push(' ');
+            }
+            out.push_str(w);
+            out
+        });
+    let cleaned: String = cleaned.chars().take(MAX_FIELD).collect();
+    (!cleaned.is_empty()).then_some(cleaned)
+}
+
+fn coord(v: Option<f64>, max: f64) -> Option<f64> {
+    v.filter(|v| v.is_finite() && v.abs() <= max)
+}
+
+fn read_reply<T: serde::de::DeserializeOwned>(agent: &ureq::Agent, url: &str) -> Result<T, String> {
+    agent
+        .get(url)
+        .call()
+        .map_err(|e| e.to_string())?
+        .body_mut()
+        .with_config()
+        .limit(MAX_REPLY)
+        .read_json()
+        .map_err(|e| e.to_string())
 }
 
 #[cfg(test)]
@@ -286,5 +310,16 @@ mod tests {
         .unwrap();
         assert_eq!(r.asn.as_deref(), Some("AS13335 Cloudflare, Inc."));
         assert_eq!(r.hosting, Some(true));
+    }
+
+    #[test]
+    fn untrusted_text_is_cleaned() {
+        assert_eq!(non_empty(Some("  Evil\nCity\r\n\t x ".into())).as_deref(), Some("Evil City x"));
+        assert_eq!(non_empty(Some("\u{1b}[2J".into())).as_deref(), Some("[2J"));
+        assert_eq!(non_empty(Some(" \n ".into())), None);
+        assert_eq!(non_empty(Some("a".repeat(500))).map(|s| s.len()), Some(MAX_FIELD));
+        assert_eq!(coord(Some(f64::NAN), 90.0), None);
+        assert_eq!(coord(Some(-91.0), 90.0), None);
+        assert_eq!(coord(Some(52.5), 90.0), Some(52.5));
     }
 }

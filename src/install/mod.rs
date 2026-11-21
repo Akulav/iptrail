@@ -11,8 +11,7 @@
 //!
 //! **Files go there.** The install folder holds the program *and* everything it writes (settings,
 //! history, change log, caches, a downloaded update). A [`MARKER`] file identifies an install
-//! folder. Files left in the pre-3.1 locations (the OS's config / data folders) are moved in on the
-//! first start of the installed copy, across drives too.
+//! folder.
 
 pub mod gui;
 pub mod update;
@@ -43,22 +42,6 @@ pub const DATA_ENTRIES: &[&str] = &["cache", "update", "history.jsonl", "ip-chan
 /// `IPTRAIL_DATA_DIR` overrides the data folder, `IPTRAIL_PORTABLE` keeps data next to the program.
 const ENV_DATA_DIR: &str = "IPTRAIL_DATA_DIR";
 const ENV_PORTABLE: &str = "IPTRAIL_PORTABLE";
-
-/// Files of versions before 3.1, in the OS's config / data folders: (file, name in the install folder).
-fn legacy_files() -> Vec<(PathBuf, &'static str)> {
-    let Some(d) = directories::ProjectDirs::from("io.github", "Akulav", "IPTrail") else { return Vec::new() };
-    vec![
-        (d.config_dir().join("settings.json"), "settings.json"),
-        (d.data_dir().join("history.jsonl"), "history.jsonl"),
-        (d.data_dir().join("ip-changes.log"), "ip-changes.log"),
-    ]
-}
-
-/// Folders of versions before 3.1 that are removed once empty (and with "delete data").
-fn legacy_dirs() -> Vec<PathBuf> {
-    let Some(d) = directories::ProjectDirs::from("io.github", "Akulav", "IPTrail") else { return Vec::new() };
-    vec![d.cache_dir().to_path_buf(), d.data_dir().to_path_buf(), d.config_dir().to_path_buf()]
-}
 
 pub const CURRENT_VERSION: &str = env!("CARGO_PKG_VERSION");
 const NEW_SUFFIX: &str = ".new";
@@ -148,6 +131,7 @@ pub fn data_root() -> PathBuf {
     root.unwrap_or_else(|| PathBuf::from("."))
 }
 
+#[cfg_attr(windows, allow(dead_code))]
 pub(crate) fn same_path(a: &Path, b: &Path) -> bool {
     let canon = |p: &Path| std::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf());
     let (a, b) = (canon(a), canon(b));
@@ -182,76 +166,13 @@ pub fn parse_install_dir(text: &str) -> Result<PathBuf, String> {
     Ok(path)
 }
 
-// ---------------------------------------------------------------------------------------------
-// Moving old data into the install folder
-// ---------------------------------------------------------------------------------------------
-
+#[cfg_attr(windows, allow(dead_code))]
 fn remove_any(p: &Path) -> std::io::Result<()> {
     if p.is_dir() {
         std::fs::remove_dir_all(p)
     } else {
         std::fs::remove_file(p)
     }
-}
-
-fn copy_all(src: &Path, dst: &Path) -> std::io::Result<()> {
-    if src.is_dir() {
-        std::fs::create_dir_all(dst)?;
-        for entry in std::fs::read_dir(src)? {
-            let entry = entry?;
-            copy_all(&entry.path(), &dst.join(entry.file_name()))?;
-        }
-        Ok(())
-    } else {
-        std::fs::copy(src, dst).map(|_| ())
-    }
-}
-
-/// Move a file or folder: a rename, or across drives a copy and then delete. A failed copy leaves
-/// the original untouched.
-pub(crate) fn move_entry(src: &Path, dst: &Path) -> std::io::Result<()> {
-    if let Some(p) = dst.parent() {
-        std::fs::create_dir_all(p)?;
-    }
-    if std::fs::rename(src, dst).is_ok() {
-        return Ok(());
-    }
-    if let Err(e) = copy_all(src, dst) {
-        let _ = remove_any(dst);
-        return Err(e);
-    }
-    let _ = remove_any(src);
-    Ok(())
-}
-
-fn migrate_legacy_data(root: &Path) -> Vec<String> {
-    let mut notes = Vec::new();
-    for (src, name) in legacy_files() {
-        let dst = root.join(name);
-        if !src.is_file() || dst.exists() || same_path(&src, &dst) {
-            continue;
-        }
-        match move_entry(&src, &dst) {
-            Ok(()) => notes.push(format!("moved {} to {}", src.display(), dst.display())),
-            Err(e) => notes.push(format!("could not move {} ({e}); it was left there", src.display())),
-        }
-    }
-    let dirs = legacy_dirs();
-    if let Some((cache, rest)) = dirs.split_first() {
-        // the old cache only held downloaded block lists: they are fetched again
-        if !same_path(cache, root) && !root.starts_with(cache) {
-            let _ = std::fs::remove_dir_all(cache);
-        }
-        for d in std::iter::once(cache).chain(rest) {
-            // empty folders only (and their empty parents, e.g. `Akulav\IPTrail`)
-            for p in d.ancestors().take(3) {
-                if std::fs::remove_dir(p).is_err() {
-                    break;
-                }
-            }
-        }
-    }
-    notes
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -278,7 +199,6 @@ pub struct StartupInfo {
     pub installed: bool,
     pub updated_from: Option<String>,
     pub offer: Offer,
-    pub notes: Vec<String>,
 }
 
 pub enum Startup {
@@ -317,7 +237,6 @@ pub fn on_startup(args: &[String], gui: bool) -> Startup {
     if let Some(root) = program_root().filter(|r| is_install_root(r)) {
         platform::on_installed_start(&root);
         let _ = std::fs::remove_dir_all(root.join("update"));
-        info.notes = migrate_legacy_data(&root);
     } else if gui && !cfg!(debug_assertions) && !flag("--here") && !portable() {
         info.offer = platform::startup_offer();
     }
@@ -339,9 +258,6 @@ pub fn install_and_launch(root: &Path, args: &[&str]) -> Result<(), String> {
 pub(crate) fn delete_data(dir: &Path) {
     for name in DATA_ENTRIES {
         let _ = remove_any(&dir.join(name));
-    }
-    for d in legacy_dirs() {
-        let _ = std::fs::remove_dir_all(d);
     }
     let _ = std::fs::remove_dir(dir);
 }
@@ -880,13 +796,6 @@ mod tests {
         let sum = sha256_file(&good).unwrap();
         assert!(verify_update(&good, &sum.to_uppercase()).is_ok());
         assert!(verify_update(&good, &"0".repeat(64)).is_err() && !good.exists());
-
-        std::fs::create_dir_all(d.join("a/b")).unwrap();
-        std::fs::write(d.join("a/b/f"), b"x").unwrap();
-        move_entry(&d.join("a"), &d.join("moved/a")).unwrap();
-        assert!(d.join("moved/a/b/f").is_file() && !d.join("a").exists());
-        copy_all(&d.join("moved"), &d.join("copy")).unwrap();
-        assert!(d.join("copy/a/b/f").is_file());
         let _ = std::fs::remove_dir_all(&d);
     }
 

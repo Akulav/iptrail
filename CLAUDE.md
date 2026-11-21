@@ -61,7 +61,7 @@ the same on Windows and Linux.
 
 ## Install, update and data location (same model as Akulav/akulav-mc-launcher)
 
-- `src/install/` — `mod.rs` (install folder, marker `.iptrail-install`, data root, moving 3.0 data in,
+- `src/install/` — `mod.rs` (install folder, marker `.iptrail-install`, data root,
   Windows/Inno + Linux/macOS self-install, download/verify/apply), `update.rs` (GitHub releases +
   `SHA256SUMS.txt`), `gui.rs` (install prompt, footer update button).
 - **Everything the app writes lives in the install folder** (`Paths::discover` → `install::data_root`):

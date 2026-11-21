@@ -6,6 +6,30 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.3.0] - 2026-11-21
+
+### Changed
+- **New look:** Windows 11's dark style, like Akulav's other apps: a flat #202020 window, #2b2b2b cards with hairline
+  borders, the Windows accent blue, 4 px controls and 8 px cards, Segoe UI. No more glows or translucent glass.
+- The repository is now `Akulav/iptrail`: links and the update check use the new name (GitHub redirects the old one).
+
+### Fixed
+- A captive portal or a broken proxy that answers with a private or local address is no longer recorded as an IP
+  change.
+- *Restart & update* now really quits, also when the close button is set to hide to the tray.
+- A relative custom log path is taken inside the data folder, not the folder IPTrail happened to start from.
+
+### Security
+- On Linux and macOS the history, log and settings files are readable by you only (`0600`): they record where you
+  have been.
+- Update checks and downloads stay on HTTPS (redirects too), with size limits on what GitHub sends back; location
+  answers are checked (coordinates in range) before they are shown.
+
+### Removed
+- Moving data from versions before 3.1 (the OS's config and data folders) into the install folder. Update to 3.2.1
+  first if you still have it.
+- The unused Debian packaging metadata.
+
 ## [3.2.1] - 2026-11-13
 
 ### Fixed

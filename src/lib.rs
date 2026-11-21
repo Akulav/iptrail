@@ -117,16 +117,13 @@ pub fn run() -> ExitCode {
         };
     }
 
-    // Installing / updating / uninstalling, moving old data into the install folder.
+    // Installing / updating / uninstalling.
     let raw: Vec<String> = std::env::args().skip(1).collect();
     let gui = !(args.once || args.headless || args.paths);
     let startup = match install::on_startup(&raw, gui) {
         install::Startup::Exit => return ExitCode::SUCCESS,
         install::Startup::Run(info) => info,
     };
-    for note in &startup.notes {
-        eprintln!("iptrail: {note}");
-    }
 
     let paths = Paths::discover();
     let mut settings = Settings::load(&paths);

@@ -210,9 +210,13 @@ impl Updater {
         });
     }
 
-    /// A compact update control for a footer or toolbar. Closes the window when an update is applied.
-    pub fn ui(&mut self, ui: &mut egui::Ui) {
+    /// A compact update control for a footer or toolbar. Returns `true` once an update has been
+    /// started: the caller must then quit for real (not hide to the tray) so the new version can
+    /// take its place.
+    #[must_use]
+    pub fn ui(&mut self, ui: &mut egui::Ui) -> bool {
         let ctx = ui.ctx().clone();
+        let mut applied = false;
         match self.get() {
             State::Available(info) => {
                 if ui
@@ -230,7 +234,7 @@ impl Updater {
             State::Ready(info, path) => {
                 if ui.button(RichText::new("Restart & update").strong()).clicked() {
                     match super::apply_update(&path, &info.sha256) {
-                        Ok(()) => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
+                        Ok(()) => applied = true,
                         Err(e) => Self::set(&self.state, State::Error(e)),
                     }
                 }
@@ -253,5 +257,6 @@ impl Updater {
                 }
             }
         }
+        applied
     }
 }

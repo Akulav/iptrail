@@ -52,11 +52,8 @@ impl Settings {
     }
 
     pub fn save(&self, paths: &Paths) -> std::io::Result<()> {
-        if let Some(dir) = paths.settings.parent() {
-            std::fs::create_dir_all(dir)?;
-        }
         let json = serde_json::to_string_pretty(self).map_err(std::io::Error::other)?;
-        std::fs::write(&paths.settings, json)
+        crate::history::write_private(&paths.settings, json.as_bytes())
     }
 
     pub fn sanitized(mut self) -> Self {
@@ -67,8 +64,14 @@ impl Settings {
         self
     }
 
+    /// The change log. A relative custom path is taken relative to the data folder, not to
+    /// whatever folder the app happened to be started from.
     pub fn log_file(&self, paths: &Paths) -> PathBuf {
-        self.log_path.clone().unwrap_or_else(|| paths.default_log.clone())
+        match &self.log_path {
+            Some(p) if p.is_relative() => paths.data_dir().join(p),
+            Some(p) => p.clone(),
+            None => paths.default_log.clone(),
+        }
     }
 }
 
@@ -88,17 +91,13 @@ impl Paths {
         Self::in_dir(&crate::install::data_root())
     }
 
-    /// Keeps every file inside one directory (used by `--demo`).
+    /// Every file inside `base` (also used by `--demo`).
     pub fn in_dir(base: &Path) -> Self {
-        Self::new(base, base, &base.join("cache"))
-    }
-
-    fn new(config: &Path, data: &Path, cache: &Path) -> Self {
         Self {
-            settings: config.join("settings.json"),
-            history: data.join("history.jsonl"),
-            default_log: data.join("ip-changes.log"),
-            cache_dir: cache.to_path_buf(),
+            settings: base.join("settings.json"),
+            history: base.join("history.jsonl"),
+            default_log: base.join("ip-changes.log"),
+            cache_dir: base.join("cache"),
         }
     }
 
@@ -124,5 +123,14 @@ mod tests {
         let s: Settings = serde_json::from_str(r#"{ "interval_secs": 42 }"#).unwrap();
         assert_eq!(s.interval_secs, 42);
         assert!(s.notifications);
+    }
+
+    #[test]
+    fn relative_log_path_is_inside_the_data_folder() {
+        let base = std::env::temp_dir().join("iptrail-paths");
+        let paths = Paths::in_dir(&base);
+        let s = Settings { log_path: Some("logs/ip.log".into()), ..Default::default() };
+        assert_eq!(s.log_file(&paths), base.join("logs/ip.log"));
+        assert_eq!(Settings::default().log_file(&paths), base.join("ip-changes.log"));
     }
 }

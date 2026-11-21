@@ -6,7 +6,7 @@
 
 use serde::Deserialize;
 
-pub const LATEST_RELEASE_API: &str = "https://api.github.com/repos/Akulav/ip-change-logger/releases/latest";
+pub const LATEST_RELEASE_API: &str = "https://api.github.com/repos/Akulav/iptrail/releases/latest";
 pub const ASSET_WINDOWS: &str = "IPTrail-setup.exe";
 pub const ASSET_LINUX: &str = "IPTrail-linux-x64";
 pub const ASSET_MACOS: &str = "IPTrail-macos-arm64";
@@ -22,6 +22,9 @@ pub struct UpdateInfo {
 pub fn agent() -> ureq::Agent {
     ureq::Agent::config_builder()
         .timeout_global(Some(std::time::Duration::from_secs(120)))
+        .timeout_connect(Some(std::time::Duration::from_secs(15)))
+        // Release metadata and downloads never leave HTTPS, redirects included.
+        .https_only(true)
         .user_agent(format!("{}/{}", super::APP_ID, super::CURRENT_VERSION))
         .build()
         .into()
@@ -100,7 +103,7 @@ pub fn check() -> Result<Option<UpdateInfo>, String> {
     let Some(asset) = this_os_asset() else { return Ok(None) };
     let agent = agent();
     let text = match agent.get(LATEST_RELEASE_API).header("Accept", "application/vnd.github+json").call() {
-        Ok(r) => r.into_body().read_to_string().map_err(|e| e.to_string())?,
+        Ok(r) => r.into_body().with_config().limit(1 << 20).read_to_string().map_err(|e| e.to_string())?,
         // No release published yet.
         Err(ureq::Error::StatusCode(404)) => return Ok(None),
         Err(e) => return Err(format!("could not reach GitHub: {e}")),
@@ -116,6 +119,8 @@ pub fn check() -> Result<Option<UpdateInfo>, String> {
         .call()
         .map_err(|e| format!("could not download {ASSET_SUMS}: {e}"))?
         .into_body()
+        .with_config()
+        .limit(64 * 1024)
         .read_to_string()
         .map_err(|e| e.to_string())?;
     let sha256 = find_sum(&sums, asset).ok_or(format!("release {version} has no checksum for {asset}"))?;

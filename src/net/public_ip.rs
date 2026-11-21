@@ -44,7 +44,26 @@ fn fetch_one(agent: &ureq::Agent, url: &str) -> Result<IpAddr, String> {
 }
 
 fn parse(body: &str) -> Result<IpAddr, String> {
-    body.trim().parse::<IpAddr>().map_err(|_| format!("unexpected response {:?}", truncate(body.trim(), 40)))
+    let ip = body
+        .trim()
+        .parse::<IpAddr>()
+        .map_err(|_| format!("unexpected response {:?}", truncate(body.trim(), 40)))?;
+    // A captive portal or a broken proxy answering with a local address must not look like a change.
+    let local = match ip {
+        IpAddr::V4(v4) => {
+            v4.is_private()
+                || v4.is_loopback()
+                || v4.is_link_local()
+                || v4.is_unspecified()
+                || v4.is_broadcast()
+                || v4.is_multicast()
+        }
+        IpAddr::V6(v6) => v6.is_loopback() || v6.is_unspecified() || v6.is_multicast(),
+    };
+    if local {
+        return Err(format!("answered with a non-public address ({ip})"));
+    }
+    Ok(ip)
 }
 
 fn truncate(s: &str, max: usize) -> &str {
@@ -63,5 +82,8 @@ mod tests {
         assert_eq!(parse("203.0.113.7\n").unwrap().to_string(), "203.0.113.7");
         assert!(parse("<html>nope</html>").is_err());
         assert!(parse("").is_err());
+        assert!(parse("192.168.1.1").is_err());
+        assert!(parse("127.0.0.1").is_err());
+        assert!(parse("0.0.0.0").is_err());
     }
 }

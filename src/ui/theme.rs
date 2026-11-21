@@ -1,75 +1,39 @@
-//! Colors, fonts and widget styling. The look follows Akulav's newer apps (Hyve, Lumen): a deep blue-black
-//! backdrop with soft glows ([`paint_backdrop`]) and glass cards with hairline borders ([`GLASS`]).
+//! Colors, fonts and widget styling: Windows 11's dark theme, like Akulav's other apps (Hyve): a flat #202020 base
+//! ([`paint_backdrop`]), #2b2b2b cards with hairline borders ([`GLASS`]), the Windows accent blue, Segoe UI.
 
 use eframe::egui::{
-    self,
-    epaint::{Mesh, Vertex, WHITE_UV},
-    Color32, CornerRadius, FontData, FontDefinitions, FontFamily, FontId, Margin, Pos2, Rect, Stroke,
+    self, Color32, CornerRadius, FontData, FontDefinitions, FontFamily, FontId, Margin, Rect, Stroke,
     TextStyle,
 };
 use std::sync::Arc;
 
-pub const BG: Color32 = Color32::from_rgb(0x09, 0x0B, 0x14);
-pub const SURFACE: Color32 = Color32::from_rgb(0x10, 0x13, 0x1F);
-pub const SURFACE_HI: Color32 = Color32::from_rgb(0x17, 0x1B, 0x2A);
-pub const BORDER: Color32 = Color32::from_rgb(0x2A, 0x2F, 0x45);
-pub const TEXT: Color32 = Color32::from_rgb(0xE8, 0xEA, 0xF6);
-pub const MUTED: Color32 = Color32::from_rgb(0x8F, 0x95, 0xB2);
-pub const FAINT: Color32 = Color32::from_rgb(0x5D, 0x63, 0x80);
-/// Glass: translucent white over the backdrop, so the glows show through cards.
-pub const GLASS: Color32 = Color32::from_rgba_premultiplied(14, 14, 15, 14);
-pub const GLASS_BORDER: Color32 = Color32::from_rgba_premultiplied(24, 24, 26, 24);
+pub const BG: Color32 = Color32::from_rgb(0x20, 0x20, 0x20);
+pub const SURFACE: Color32 = Color32::from_rgb(0x2B, 0x2B, 0x2B);
+pub const SURFACE_HI: Color32 = Color32::from_rgb(0x32, 0x32, 0x32);
+pub const BORDER: Color32 = Color32::from_rgb(0x3A, 0x3A, 0x3A);
+pub const TEXT: Color32 = Color32::from_rgb(0xFF, 0xFF, 0xFF);
+pub const MUTED: Color32 = Color32::from_rgb(0xCF, 0xCF, 0xCF);
+pub const FAINT: Color32 = Color32::from_rgb(0x9D, 0x9D, 0x9D);
+/// Cards: Windows 11's card layer, one step above the window, with a hairline border.
+pub const GLASS: Color32 = SURFACE;
+pub const GLASS_BORDER: Color32 = BORDER;
+/// Windows 11's accent blue for fills behind white text (selection, pressed controls).
+pub const ACCENT_FILL: Color32 = Color32::from_rgb(0x00, 0x78, 0xD4);
 
-pub const CYAN: Color32 = Color32::from_rgb(0x22, 0xD3, 0xEE);
-pub const INDIGO: Color32 = Color32::from_rgb(0x63, 0x66, 0xF1);
-pub const GREEN: Color32 = Color32::from_rgb(0x34, 0xD3, 0x99);
-pub const AMBER: Color32 = Color32::from_rgb(0xFB, 0xBF, 0x24);
-pub const RED: Color32 = Color32::from_rgb(0xF8, 0x71, 0x71);
+pub const CYAN: Color32 = Color32::from_rgb(0x60, 0xCD, 0xFF);
+pub const INDIGO: Color32 = Color32::from_rgb(0x8E, 0x8C, 0xD8);
+pub const GREEN: Color32 = Color32::from_rgb(0x6C, 0xCB, 0x5F);
+pub const AMBER: Color32 = Color32::from_rgb(0xFC, 0xE1, 0x00);
+pub const RED: Color32 = Color32::from_rgb(0xFF, 0x99, 0xA4);
 
-pub const RADIUS: u8 = 16;
-/// Buttons and fields (Hyve's radius-sm).
-pub const RADIUS_SM: u8 = 10;
+/// Windows 11: 8 px cards, 4 px controls.
+pub const RADIUS: u8 = 8;
+/// Buttons and fields.
+pub const RADIUS_SM: u8 = 4;
 
-/// Soft radial glow: `color` in the middle, fading to nothing at `radius`.
-fn radial(mesh: &mut Mesh, center: Pos2, radius: egui::Vec2, color: Color32) {
-    let base = mesh.vertices.len() as u32;
-    mesh.vertices.push(Vertex { pos: center, uv: WHITE_UV, color });
-    let n = 48;
-    for i in 0..=n {
-        let a = i as f32 / n as f32 * std::f32::consts::TAU;
-        let pos = center + egui::vec2(a.cos() * radius.x, a.sin() * radius.y);
-        mesh.vertices.push(Vertex { pos, uv: WHITE_UV, color: Color32::TRANSPARENT });
-    }
-    for i in 0..n {
-        mesh.add_triangle(base, base + 1 + i, base + 2 + i);
-    }
-}
-
-/// The window backdrop in `rect`: the base color with an indigo glow top-left, a cyan glow top-right and a faint
-/// one below.
+/// The window background in `rect`: Windows 11's flat dark base.
 pub fn paint_backdrop(painter: &egui::Painter, rect: Rect) {
     painter.rect_filled(rect, CornerRadius::ZERO, BG);
-    let (w, h) = (rect.width(), rect.height());
-    let mut mesh = Mesh::default();
-    radial(
-        &mut mesh,
-        rect.min + egui::vec2(w * 0.08, -h * 0.10),
-        egui::vec2(w * 0.62, h * 0.85),
-        tint(INDIGO, 0.18),
-    );
-    radial(
-        &mut mesh,
-        rect.min + egui::vec2(w * 1.05, h * 0.10),
-        egui::vec2(w * 0.48, h * 0.75),
-        tint(CYAN, 0.11),
-    );
-    radial(
-        &mut mesh,
-        rect.min + egui::vec2(w * 0.5, h * 1.2),
-        egui::vec2(w * 0.45, h * 0.6),
-        tint(INDIGO, 0.08),
-    );
-    painter.add(mesh);
 }
 
 /// Semi-bold UI font (falls back to the regular one when unavailable).
@@ -102,33 +66,37 @@ pub fn apply(ctx: &egui::Context) {
         v.dark_mode = true;
         v.panel_fill = BG;
         v.window_fill = SURFACE;
-        v.extreme_bg_color = Color32::from_rgb(0x07, 0x08, 0x0F); // text fields: darker than the glass around them
+        v.extreme_bg_color = Color32::from_rgb(0x1C, 0x1C, 0x1C); // text fields, like Windows 11's text boxes
         v.faint_bg_color = SURFACE_HI;
         v.window_stroke = Stroke::new(1.0, BORDER);
         v.window_corner_radius = CornerRadius::same(RADIUS);
-        v.menu_corner_radius = CornerRadius::same(10);
+        v.menu_corner_radius = CornerRadius::same(RADIUS_SM);
         v.override_text_color = Some(TEXT);
         v.hyperlink_color = CYAN;
-        v.selection.bg_fill = tint(INDIGO, 0.55);
+        v.selection.bg_fill = ACCENT_FILL;
         v.selection.stroke = Stroke::new(1.0, CYAN);
         v.warn_fg_color = AMBER;
         v.error_fg_color = RED;
 
-        // Hyve's buttons: translucent white with a light hairline, brighter on hover.
+        // Windows 11's standard buttons: a light layer with a hairline border, a step lighter on hover.
         let r = CornerRadius::same(RADIUS_SM);
         for (w, fill, stroke) in [
             (&mut v.widgets.noninteractive, SURFACE, BORDER),
             (
                 &mut v.widgets.inactive,
-                Color32::from_rgba_premultiplied(15, 15, 16, 15),
-                Color32::from_rgba_premultiplied(40, 40, 42, 40),
+                Color32::from_rgba_premultiplied(15, 15, 15, 15),
+                Color32::from_rgba_premultiplied(24, 24, 24, 24),
             ),
             (
                 &mut v.widgets.hovered,
-                Color32::from_rgba_premultiplied(28, 28, 30, 28),
-                Color32::from_rgba_premultiplied(62, 62, 66, 62),
+                Color32::from_rgba_premultiplied(21, 21, 21, 21),
+                Color32::from_rgba_premultiplied(24, 24, 24, 24),
             ),
-            (&mut v.widgets.active, tint(INDIGO, 0.35), INDIGO),
+            (
+                &mut v.widgets.active,
+                Color32::from_rgba_premultiplied(11, 11, 11, 11),
+                Color32::from_rgba_premultiplied(24, 24, 24, 24),
+            ),
             (&mut v.widgets.open, SURFACE_HI, BORDER),
         ] {
             w.bg_fill = fill;

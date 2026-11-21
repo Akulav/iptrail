@@ -363,7 +363,11 @@ impl App {
                     RichText::new(format!("v{}", env!("CARGO_PKG_VERSION"))).size(12.0),
                     REPO_URL,
                 );
-                self.updater.ui(ui);
+                if self.updater.ui(ui) {
+                    // An update was started: quit for real (never hide to the tray) so it can replace us.
+                    self.quitting = true;
+                    ui.ctx().send_viewport_cmd(ViewportCommand::Close);
+                }
                 ui.label(
                     RichText::new("Data: ip-api.com · ipwho.is · Tor Project · blocklist.de · FireHOL")
                         .size(12.0)
@@ -504,7 +508,7 @@ impl App {
                 egui::Frame::new()
                     .fill(theme::SURFACE_HI)
                     .stroke(egui::Stroke::new(1.0, theme::tint(CYAN, 0.5)))
-                    .corner_radius(10)
+                    .corner_radius(theme::RADIUS)
                     .inner_margin(egui::Margin::symmetric(14, 8))
                     .show(ui, |ui| ui.label(RichText::new(text.as_str()).color(TEXT)));
             });
@@ -578,7 +582,7 @@ fn risk_badge(ui: &mut Ui, intel: Option<&IpIntel>) {
     egui::Frame::new()
         .fill(theme::tint(color, 0.10))
         .stroke(egui::Stroke::new(1.0, theme::tint(color, 0.40)))
-        .corner_radius(12)
+        .corner_radius(theme::RADIUS)
         .inner_margin(egui::Margin::symmetric(16, 12))
         .show(ui, |ui| {
             ui.set_min_width(190.0);
@@ -742,7 +746,7 @@ fn history_row(ui: &mut Ui, e: &Entry, latest: bool, copy: &mut Option<String>) 
     let accent = if latest { CYAN } else { theme::BORDER };
     let resp = egui::Frame::new()
         .fill(if latest { theme::tint(CYAN, 0.06) } else { Color32::TRANSPARENT })
-        .corner_radius(10)
+        .corner_radius(theme::RADIUS)
         .inner_margin(egui::Margin::symmetric(10, 8))
         .show(ui, |ui| {
             ui.set_width(ui.available_width());

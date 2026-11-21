@@ -221,6 +221,14 @@ desktop is left untouched; new changes go to `ip-changes.log` (or any path you c
 
 </details>
 
+## 📚 Documentation
+
+- [docs/architecture.md](docs/architecture.md): how it works inside and where each piece of the code lives
+- [docs/data-sources.md](docs/data-sources.md): every data source, what it tells and its terms
+- [docs/development.md](docs/development.md): building, testing and the Linux packages
+- [docs/releasing.md](docs/releasing.md): publishing a release
+- [CHANGELOG.md](CHANGELOG.md): what changed in each version
+
 ## 🙏 Credits
 
 Data from ip-api.com, ipwho.is, the Tor Project, blocklist.de and FireHOL; each keeps its own terms.
