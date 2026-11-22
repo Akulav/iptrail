@@ -6,6 +6,17 @@ the project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [3.4.0] - 2026-11-22
+
+### Changed
+- **Settings is a page now**, not a small window on top: it opens in the main area with tabs (Monitoring,
+  Intelligence, Window, Files). Each setting is one row with its control lined up on the right, and the on/off
+  options are Windows 11 switches.
+- The dashboard sits in a centred column that grows with the window, and everything fits on screen when the window is
+  maximized: Network details now shows two values per row.
+- Tidier buttons: Copy, Open folder and Clear are full-size buttons like the rest, and Settings stays highlighted
+  while its page is open. The risk badge no longer stretches across the whole card on wide windows.
+
 ## [3.3.0] - 2026-11-21
 
 ### Changed

@@ -21,8 +21,6 @@ use widgets::{
 
 pub const APP_NAME: &str = "IPTrail";
 const REPO_URL: &str = "https://github.com/Akulav/ip-change-logger";
-/// Content width of the Settings window (the window adds its 20 px margin on each side).
-const SETTINGS_WIDTH: f32 = 420.0;
 
 pub fn run(paths: Paths, settings: Settings, startup: crate::install::StartupInfo) -> eframe::Result {
     let icon =
@@ -48,6 +46,7 @@ struct App {
     settings: Settings,
     logo: Option<egui::TextureHandle>,
     settings_open: bool,
+    settings_tab: usize,
     log_path_edit: String,
     confirm_clear: bool,
     toast: Option<(String, Instant)>,
@@ -106,6 +105,7 @@ impl App {
             settings,
             logo,
             settings_open: false,
+            settings_tab: 0,
             confirm_clear: false,
             toast,
             #[cfg(windows)]
@@ -237,9 +237,14 @@ impl eframe::App for App {
 
         egui::CentralPanel::default()
             .frame(egui::Frame::new().inner_margin(egui::Margin { left: 24, right: 24, top: 8, bottom: 8 }))
-            .show(ui, |ui| self.dashboard(ui));
+            .show(ui, |ui| {
+                if self.settings_open {
+                    widgets::centered(ui, 860.0, |ui| self.settings_page(ui));
+                } else {
+                    widgets::centered(ui, 1400.0, |ui| self.dashboard(ui));
+                }
+            });
 
-        self.settings_window(&ctx);
         self.clear_confirmation(&ctx);
         self.toast_overlay(&ctx);
     }
@@ -278,8 +283,8 @@ impl App {
             }
 
             ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
-                if ghost_button(ui, "⚙  Settings").clicked() {
-                    self.settings_open = true;
+                if widgets::toggle_button(ui, self.settings_open, "⚙  Settings").clicked() {
+                    self.settings_open = !self.settings_open;
                 }
                 if ghost_button(ui, "⟳  Check now").on_hover_text("Check the public IP immediately").clicked()
                 {
@@ -377,27 +382,49 @@ impl App {
         });
     }
 
-    fn settings_window(&mut self, ctx: &egui::Context) {
-        if !self.settings_open {
-            return;
-        }
-        let mut open = true;
-        let mut changed = false;
+    /// The settings page, shown in the main area in place of the dashboard. Each tab is short enough to
+    /// fit without scrolling.
+    fn settings_page(&mut self, ui: &mut Ui) {
         let tray = self.has_tray();
-        egui::Window::new(RichText::new("Settings").font(FontId::new(17.0, theme::strong())))
-            .open(&mut open)
-            .collapsible(false)
-            .resizable(false)
-            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
-            .show(ctx, |ui| {
-                // An auto-sized window gives its content last frame's width, so anything sized from
-                // `available_width()` feeds back and widens the window a little every frame. Pin it.
-                ui.set_width(SETTINGS_WIDTH);
-                let st = &mut self.settings;
+        let tabs: &[&str] = if tray {
+            &["Monitoring", "Intelligence", "Window", "Files"]
+        } else {
+            &["Monitoring", "Intelligence", "Files"]
+        };
+        self.settings_tab = self.settings_tab.min(tabs.len() - 1);
+        // Same tab names map to the same pages whether or not the tray tab is there.
+        let page = match tabs[self.settings_tab] {
+            "Monitoring" => 0,
+            "Intelligence" => 1,
+            "Window" => 2,
+            _ => 3,
+        };
 
-                caption(ui, "Monitoring");
-                ui.horizontal(|ui| {
-                    ui.label("Check every");
+        ui.add_space(4.0);
+        ui.horizontal(|ui| {
+            ui.vertical(|ui| {
+                ui.spacing_mut().item_spacing.y = 0.0;
+                ui.label(RichText::new("Settings").font(FontId::new(20.0, theme::strong())).color(TEXT));
+                ui.label(RichText::new("Changes are saved right away.").size(12.0).color(MUTED));
+            });
+            ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
+                if ghost_button(ui, "Close").clicked() {
+                    self.settings_open = false;
+                }
+            });
+        });
+        ui.add_space(10.0);
+        widgets::tab_strip(ui, tabs, &mut self.settings_tab);
+        ui.add_space(12.0);
+
+        let mut changed = false;
+        let st = &mut self.settings;
+        card(ui, |ui| match page {
+            0 => {
+                section_title(ui, "Monitoring");
+                ui.add_space(4.0);
+                setting_row(ui, "Check every", "How often the public IP is looked up", |ui| {
+                    ui.spacing_mut().slider_width = 220.0;
                     changed |= ui
                         .add(
                             egui::Slider::new(&mut st.interval_secs, MIN_INTERVAL_SECS..=MAX_INTERVAL_SECS)
@@ -406,34 +433,62 @@ impl App {
                         )
                         .drag_stopped();
                 });
-                changed |= ui.checkbox(&mut st.auto_start, "Start monitoring when IPTrail opens").changed();
-                changed |= ui.checkbox(&mut st.notifications, "Desktop notification when the IP changes").changed();
-
-                ui.add_space(10.0);
-                caption(ui, "Intelligence (no API key needed)");
-                changed |= ui
-                    .checkbox(&mut st.ip_intel, "Look up location, network and proxy/VPN status")
-                    .on_hover_text("ip-api.com, falling back to ipwho.is")
-                    .changed();
-                changed |= ui
-                    .checkbox(&mut st.threat_feeds, "Check Tor and abuse blocklists")
-                    .on_hover_text("Tor Project exit list, blocklist.de and FireHOL level 1 — downloaded and cached locally")
-                    .changed();
-
-                if tray {
-                    ui.add_space(10.0);
-                    caption(ui, "System tray");
-                    changed |= ui.checkbox(&mut st.minimize_to_tray, "Minimize to tray").changed();
-                    changed |= ui.checkbox(&mut st.close_to_tray, "Close button hides to tray").changed();
-                }
-
-                ui.add_space(10.0);
-                caption(ui, "Change log file");
-                // Right to left: the button takes what it needs and the field fills exactly what is
-                // left of the fixed width, so this row can't widen the window.
+                setting_row(ui, "Start monitoring when IPTrail opens", "", |ui| {
+                    changed |= widgets::switch(ui, &mut st.auto_start);
+                });
+                setting_row(
+                    ui,
+                    "Notify me when the IP changes",
+                    "A desktop notification for every change",
+                    |ui| {
+                        changed |= widgets::switch(ui, &mut st.notifications);
+                    },
+                );
+            }
+            1 => {
+                section_title(ui, "Intelligence");
+                ui.label(RichText::new("Free sources, no API key needed.").size(12.0).color(MUTED));
+                ui.add_space(4.0);
+                setting_row(
+                    ui,
+                    "Location, network and proxy/VPN status",
+                    "ip-api.com, falling back to ipwho.is",
+                    |ui| changed |= widgets::switch(ui, &mut st.ip_intel),
+                );
+                setting_row(
+                    ui,
+                    "Tor and abuse blocklists",
+                    "Tor Project exit list, blocklist.de and FireHOL level 1, cached locally",
+                    |ui| changed |= widgets::switch(ui, &mut st.threat_feeds),
+                );
+            }
+            2 => {
+                section_title(ui, "System tray");
+                ui.add_space(4.0);
+                setting_row(
+                    ui,
+                    "Minimize to tray",
+                    "The window hides to the tray icon when minimized",
+                    |ui| {
+                        changed |= widgets::switch(ui, &mut st.minimize_to_tray);
+                    },
+                );
+                setting_row(ui, "Close button hides to tray", "Quit from the tray menu instead", |ui| {
+                    changed |= widgets::switch(ui, &mut st.close_to_tray);
+                });
+            }
+            _ => {
+                section_title(ui, "Change log file");
+                ui.label(
+                    RichText::new("A plain-text line for every change. Leave empty to use the default.")
+                        .size(12.0)
+                        .color(MUTED),
+                );
+                ui.add_space(8.0);
+                // Right to left: the button takes what it needs and the field fills what is left.
                 ui.horizontal(|ui| {
                     ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui.button("Reset").clicked() {
+                        if ghost_button(ui, "Reset").clicked() {
                             self.log_path_edit.clear();
                             st.log_path = None;
                             changed = true;
@@ -442,6 +497,7 @@ impl App {
                         let resp = ui.add(
                             egui::TextEdit::singleline(&mut self.log_path_edit)
                                 .hint_text(hint)
+                                .min_size(egui::vec2(0.0, 32.0))
                                 .desired_width(ui.available_width()),
                         );
                         if resp.lost_focus() {
@@ -451,20 +507,24 @@ impl App {
                         }
                     });
                 });
-
-                ui.add_space(10.0);
-                ui.horizontal(|ui| {
-                    if ui.link("Open data folder").clicked() {
+                ui.add_space(12.0);
+                ui.separator();
+                ui.add_space(4.0);
+                setting_row(ui, "Data folder", "Settings, history and cache", |ui| {
+                    if widgets::row_button(ui, "Open data folder").clicked() {
                         let _ = open_path(self.paths.data_dir());
                     }
-                    ui.label(RichText::new("·").color(FAINT));
-                    ui.hyperlink_to("Project page", REPO_URL);
                 });
-            });
+                setting_row(ui, "Project page", "Source code, releases and issues on GitHub", |ui| {
+                    if widgets::row_button(ui, "Open on GitHub").clicked() {
+                        ui.ctx().open_url(egui::OpenUrl::new_tab(REPO_URL));
+                    }
+                });
+            }
+        });
         if changed {
             self.apply_settings();
         }
-        self.settings_open = open;
     }
 
     fn clear_confirmation(&mut self, ctx: &egui::Context) {
@@ -530,7 +590,7 @@ fn hero(ui: &mut Ui, s: &State, copy: &mut Option<String>) {
                         ui.label(
                             RichText::new(ip.to_string()).font(FontId::monospace(40.0)).color(Color32::WHITE),
                         );
-                        if ui.button("Copy").on_hover_text("Copy to clipboard").clicked() {
+                        if ghost_button(ui, "Copy").on_hover_text("Copy to clipboard").clicked() {
                             *copy = Some(ip.to_string());
                         }
                     }
@@ -585,7 +645,9 @@ fn risk_badge(ui: &mut Ui, intel: Option<&IpIntel>) {
         .corner_radius(theme::RADIUS)
         .inner_margin(egui::Margin::symmetric(16, 12))
         .show(ui, |ui| {
+            // Compact: in the hero's right-to-left layout it would otherwise fill the whole row.
             ui.set_min_width(190.0);
+            ui.set_max_width(320.0);
             ui.horizontal(|ui| {
                 widgets::glyph(ui, icon, color, 34.0);
                 ui.vertical(|ui| {
@@ -641,14 +703,16 @@ fn signals_card(ui: &mut Ui, intel: Option<&IpIntel>, have_ip: bool) {
         section_title(ui, "Anonymity & threat signals");
         ui.add_space(8.0);
         let get = |f: fn(&IpIntel) -> Option<bool>| intel.and_then(f);
-        egui::Grid::new("signals").num_columns(2).spacing([12.0, 9.0]).striped(false).show(ui, |ui| {
+        // Rows only as tall as their pills, so this card and the details below it fit a maximized window.
+        ui.spacing_mut().interact_size.y = 24.0;
+        egui::Grid::new("signals").num_columns(2).spacing([12.0, 7.0]).striped(false).show(ui, |ui| {
             signal_row(ui, "Anonymous", "Tor or proxy/VPN detected", get(IpIntel::anonymous), INDIGO);
             signal_row(ui, "Threat", "Listed as attacker or abuser", get(IpIntel::threat), RED);
         });
         ui.add_space(4.0);
         ui.separator();
         ui.add_space(4.0);
-        egui::Grid::new("signal-details").num_columns(2).spacing([12.0, 9.0]).show(ui, |ui| {
+        egui::Grid::new("signal-details").num_columns(2).spacing([12.0, 7.0]).show(ui, |ui| {
             signal_row(ui, "Proxy / VPN", "ip-api.com proxy, VPN or Tor detection", get(|i| i.proxy), INDIGO);
             signal_row(ui, "Tor exit node", "Tor Project bulk exit list", get(|i| i.tor), INDIGO);
             signal_row(ui, "Data center", "Hosting / cloud provider range", get(|i| i.hosting), INDIGO);
@@ -686,16 +750,40 @@ fn details_card(ui: &mut Ui, intel: Option<&IpIntel>) {
             (Some(lat), Some(lon)) => Some(format!("{lat:.4}, {lon:.4}")),
             _ => None,
         };
-        egui::Grid::new("details").num_columns(2).spacing([16.0, 7.0]).show(ui, |ui| {
-            kv_row(ui, "Location", i.place().as_deref());
-            kv_row(ui, "ISP", i.isp.as_deref());
-            kv_row(ui, "Organization", i.org.as_deref());
-            kv_row(ui, "ASN", i.asn.as_deref());
-            kv_row(ui, "Reverse DNS", i.reverse_dns.as_deref());
-            kv_row(ui, "Time zone", i.timezone.as_deref());
-            kv_row(ui, "Coordinates", coords.as_deref());
-            kv_row(ui, "Source", (!i.source.is_empty()).then_some(i.source.as_str()));
-        });
+        // Plain text rows don't need button-height rows; keep the card short enough to fit maximized.
+        ui.spacing_mut().interact_size.y = 22.0;
+        let place = i.place();
+        let rows: [(&str, Option<&str>); 8] = [
+            ("Location", place.as_deref()),
+            ("ISP", i.isp.as_deref()),
+            ("Organization", i.org.as_deref()),
+            ("ASN", i.asn.as_deref()),
+            ("Reverse DNS", i.reverse_dns.as_deref()),
+            ("Time zone", i.timezone.as_deref()),
+            ("Coordinates", coords.as_deref()),
+            ("Source", (!i.source.is_empty()).then_some(i.source.as_str())),
+        ];
+        if ui.available_width() > 560.0 {
+            // Two label/value pairs per row: half the height, so the dashboard fits a maximized window.
+            ui.columns(2, |cols| {
+                for (c, half) in rows.chunks(4).enumerate() {
+                    egui::Grid::new(("details", c)).num_columns(2).spacing([16.0, 6.0]).show(
+                        &mut cols[c],
+                        |ui| {
+                            for (k, v) in half {
+                                kv_row(ui, k, *v);
+                            }
+                        },
+                    );
+                }
+            });
+        } else {
+            egui::Grid::new("details").num_columns(2).spacing([16.0, 6.0]).show(ui, |ui| {
+                for (k, v) in &rows {
+                    kv_row(ui, k, *v);
+                }
+            });
+        }
     });
 }
 
@@ -710,10 +798,10 @@ fn history_card(
         ui.horizontal(|ui| {
             section_title(ui, "Change history");
             ui.with_layout(Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui.small_button("Clear").on_hover_text("Clear history").clicked() {
+                if ghost_button(ui, "Clear").on_hover_text("Clear history").clicked() {
                     *ask_clear = true;
                 }
-                if ui.small_button("Open folder").on_hover_text("Open log folder").clicked() {
+                if ghost_button(ui, "Open folder").on_hover_text("Open log folder").clicked() {
                     *open_folder = true;
                 }
             });
@@ -792,6 +880,22 @@ fn history_row(ui: &mut Ui, e: &Entry, latest: bool, copy: &mut Option<String>) 
 
 // ---------------------------------------------------------------------------
 // Helpers
+
+/// One settings row: label and hint on the left, the control lined up on the right edge.
+fn setting_row(ui: &mut Ui, label: &str, hint: &str, control: impl FnOnce(&mut Ui)) {
+    ui.horizontal(|ui| {
+        ui.set_min_height(48.0);
+        ui.vertical(|ui| {
+            ui.spacing_mut().item_spacing.y = 2.0;
+            ui.add_space(6.0);
+            ui.label(RichText::new(label).color(TEXT));
+            if !hint.is_empty() {
+                ui.label(RichText::new(hint).size(12.0).color(MUTED));
+            }
+        });
+        ui.with_layout(Layout::right_to_left(egui::Align::Center), control);
+    });
+}
 
 fn plural(n: u64, one: &str, many: &str) -> String {
     format!("{n} {}", if n == 1 { one } else { many })
